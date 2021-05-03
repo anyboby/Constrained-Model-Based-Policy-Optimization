@@ -94,7 +94,7 @@ ALGORITHM_PARAMS = {
             'm_networks': 7,              # size of model network ensemble
             'm_elites': 5,                # best networks to select from num_networks
             'max_model_t': None,            # a timeout for model training (e.g. for speeding up wallclock time)
-            'policy_alpha': 2,
+            'sampling_alpha': 2,
             'rollout_mode' : 'uncertainty',           #### choose from 'schedule', or 'uncertainty'
             'rollout_schedule': [10, 500, 5, 30], #[15, 100, 1, 15],    # min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
                                                         # increases rollout length from min_length to max_length over 

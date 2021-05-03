@@ -31,6 +31,16 @@ AUTOSCALER_DEFAULT_CONFIG_FILE_GCE = os.path.join(
 AUTOSCALER_DEFAULT_CONFIG_FILE_EC2 = os.path.join(
     PROJECT_PATH, 'config', 'ray-autoscaler-ec2.yaml')
 
+def create_trial_name_creator(trial_name_template=None):
+    if not trial_name_template:
+        return None
+
+    def trial_name_creator(trial):
+        return trial_name_template.format(trial=trial)
+
+    return tune.function(trial_name_creator)
+
+
 def _normalize_trial_resources(resources, cpu, gpu, extra_cpu, extra_gpu):
     if resources is None:
         resources = {}
@@ -87,15 +97,6 @@ def generate_experiment(trainable_class, variant_spec, command_line_args):
         assert 'algorithm_params' in variant_spec
         variant_spec['algorithm_params']['kwargs']['video_save_frequency'] = (
             command_line_args.video_save_frequency)
-
-    def create_trial_name_creator(trial_name_template=None):
-        if not trial_name_template:
-            return None
-
-        def trial_name_creator(trial):
-            return trial_name_template.format(trial=trial)
-
-        return tune.function(trial_name_creator)
 
     experiment = {
         'run': trainable_class,

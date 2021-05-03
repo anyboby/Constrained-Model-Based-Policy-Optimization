@@ -53,7 +53,7 @@ class CMBPO(RLAlgorithm):
             m_hidden_dims=(200, 200, 200, 200),
             max_model_t=None,
             rollout_batch_size=10e3,
-            policy_alpha = 1,
+            sampling_alpha = 1,
             rollout_mode = 'uncertainty',
             rollout_schedule=[20,100,1,1],
             maxroll = 80,
@@ -88,7 +88,7 @@ class CMBPO(RLAlgorithm):
         self._training_environment = env
         self._policy = policy
         self._initial_exploration_policy = policy   #overwriting initial _exploration policy, not implemented for cpo yet
-        self.policy_alpha = policy_alpha
+        self.sampling_alpha = sampling_alpha
 
         #### set up buffer
         self._buffer = buffer
@@ -247,7 +247,7 @@ class CMBPO(RLAlgorithm):
                 while keep_rolling:
                     ep_b = self._buffer.epoch_batch(batch_size=self._rollout_batch_size, epochs=self._buffer.epochs_list, fields=['observations','pi_infos'])
                     kls = np.clip(self._policy.compute_DKL(ep_b['observations'], ep_b['mu'], ep_b['log_std']), a_min=0, a_max=None)
-                    btz_dist = self._buffer.boltz_dist(kls, alpha=self.policy_alpha)
+                    btz_dist = self._buffer.boltz_dist(kls, alpha=self.sampling_alpha)
                     btz_b = self._buffer.distributed_batch_from_archive(self._rollout_batch_size, btz_dist, fields=['observations','pi_infos'])
                     start_states, mus, logstds = btz_b['observations'], btz_b['mu'], btz_b['log_std']
                     btz_kl = np.clip(self._policy.compute_DKL(start_states, mus, logstds), a_min=0, a_max=None)

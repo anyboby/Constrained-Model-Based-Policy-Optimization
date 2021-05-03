@@ -3,7 +3,6 @@ from collections import deque, OrderedDict
 from itertools import islice
 
 import numpy as np
-import matplotlib.pyplot as plt
 import random
 
 from samplers.cpo_sampler import CpoSampler
