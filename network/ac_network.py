@@ -78,7 +78,6 @@ def categorical_entropy(logp):
 """
 Policies
 """
-
 def mlp_categorical_policy(x, a, hidden_sizes, activation, output_activation, action_space):
     act_dim = action_space.n
     logits = mlp(x, list(hidden_sizes)+[act_dim], activation, None)

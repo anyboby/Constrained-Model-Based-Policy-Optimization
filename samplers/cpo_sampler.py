@@ -10,24 +10,27 @@ from utilities.mpi_tools import mpi_sum
 class CpoSampler():
     def __init__(self,
                  max_path_length,
-                 store_last_n_paths = 10,
                  render_mode = None,
-                 logger = None):
+                 logger = None):        
+        """
+        Sampler for direct interactions with real environment. 
+        Stores samples for CPO in provided buffer.
+
+        Args:
+            max_path_length(`int`): maximum path length, trajectory terminates
+            render_mode(`str`): renders env if provided
+            logger(`Logger`): logger, if not provided new one is created
+        """
         self._max_path_length = max_path_length
         self._path_length = 0
         self._path_return = 0
         self._path_cost = 0
         self.cum_cost = 0
-        
         if logger:
             self.logger = logger
         else: 
             self.logger = EpochLogger()
-
-        self._store_last_n_paths = store_last_n_paths
-        self._last_n_paths = deque(maxlen=store_last_n_paths)
         self._render_mode = render_mode
-
         self._current_path = defaultdict(list)
         self._last_path_return = 0
         self._max_path_return = -np.inf
@@ -57,7 +60,7 @@ class CpoSampler():
         Args: 
             logger : instance of EpochLogger
         """ 
-        self.logger = logger        
+        self.logger = logger
 
     def terminate(self):
         self.env.close()
@@ -88,22 +91,14 @@ class CpoSampler():
         self.policy = None
         self.pool = None
 
-    def clear_last_n_paths(self):
-        self._last_n_paths.clear()
-
     @property
     def max_path_length(self):
         return self._max_path_length
 
-    def get_last_n_paths(self, n=None):
-        if n is None:
-            n = self._store_last_n_paths
-
-        last_n_paths = tuple(islice(self._last_n_paths, None, n))
-
-        return last_n_paths
-
     def batch_ready(self):
+        """
+        Checks if buffer is filled with samples
+        """
         return self.pool.size >= self.pool.max_size
 
     def _process_observations(self,
@@ -129,11 +124,11 @@ class CpoSampler():
 
     def sample(self, timestep):
         if self._current_observation is None:
-            # Reset environment
+            ### Reset environment
             self._current_observation, reward, terminal, c = np.squeeze(self.env.reset()), 0, False, 0
             self._last_action = np.zeros(shape=self.env.action_space.shape)
 
-        # Get outputs from policy
+        ### Get outputs from policy
         get_action_outs = self.policy.get_action_outs(self._current_observation)
 
         a = get_action_outs['pi']
@@ -142,6 +137,7 @@ class CpoSampler():
         logp_t = get_action_outs['logp_pi']
         pi_info_t = get_action_outs['pi_info']
 
+        ### step in env
         next_observation, reward, terminal, info = self.env.step(a)
         if self._render_mode:
             self.env.render(self._render_mode)
@@ -150,8 +146,7 @@ class CpoSampler():
         terminal = np.squeeze(terminal)        
         c = info.get('cost', 0)
 
-
-        #save and log
+        ### store measurements in buffer and log
         self.pool.store(self._current_observation, a, next_observation, reward, v_t, c, vc_t, logp_t, pi_info_t, terminal, timestep)
         self.logger.store(VVals=v_t, CostVVals=vc_t)
         
@@ -179,15 +174,14 @@ class CpoSampler():
         self._current_observation = next_observation
         self._last_action = a
 
-        #### add to pool only after full epoch or terminal path
+        #### terminate paths 
         if terminal or self._path_length >= self._max_path_length:
-
             # If trajectory didn't reach terminal state, bootstrap value target(s)
+            
             if terminal and not(self._path_length >= self._max_path_length):
-                # Note: we do not count env time out as true terminal state,
-                ## But costs are calculated for the maximum episode length, 
-                ## even for early termination
-                
+                ## Note: we do not count env time-out as true terminal state,
+                ## But costs are calculated for the maximum episode length,
+                ## even for timed-out paths
                 self.finish_all_paths(append_val=False, append_cval=True)
             else:
                 self.finish_all_paths(append_val=True, append_cval=True)
@@ -198,11 +192,11 @@ class CpoSampler():
     def finish_all_paths(self, append_val=False, append_cval=False, reset_path = True):
             if self._current_observation is None:   #return if already finished
                 return
-
             ####--------------------####
             ####  finish pool traj  ####
             ####--------------------####
-            # If trajectory didn't reach terminal state, bootstrap value target(s)
+
+            ### If trajectory didn't reach terminal state, bootstrap value target(s)
             if not append_val:
                 # Note: we do not count env time out as true terminal state
                 last_val = np.zeros((1,))
@@ -226,7 +220,6 @@ class CpoSampler():
                     field_name: np.array(values)
                     for field_name, values in self._current_path.items()
                 }
-                self._last_n_paths.appendleft(self.last_path)
 
                 self._max_path_return = max(self._max_path_return,
                                             self._path_return)

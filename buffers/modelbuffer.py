@@ -17,24 +17,32 @@ import scipy.signal
 
 class ModelBuffer(CPOBuffer):
 
-    def __init__(self, batch_size, env, max_path_length,
+    def __init__(self, batch_size, obs_dim, act_dim, max_path_length,
                  *args,
                  **kwargs,
                  ):
-        
+        """
+        Buffer for model-generated data. This buffer stores multiple 
+        trajectories in parallel. I.e. buffers have the shape (batch_size, path_length, shape,)
+        Calling get() resets pointers. 
+        Args:
+            batch_size (`int`): number of parallel trajectories to be stored.
+            obs_dim(`space`): Observation dimension.
+            act_dim (`space`): Action dimension.
+            max_path_length (`int`): Maximum path length per trajectory.
+        """
         self.max_path_length = max_path_length
         self.batch_size = batch_size
-        self.env = env
-        self.obs_shape = self.env.observation_space.shape
-        self.act_shape = self.env.action_space.shape
+        self.obs_shape = obs_dim
+        self.act_shape = act_dim
         self.pi_info_shapes = None
         self.reset()
 
-    ''' initialize policy dependendant pi_info shapes, gamma, lam etc.'''
     def initialize(self, pi_info_shapes,
                     gamma=0.99, lam = 0.95,
                     cost_gamma = 0.99, cost_lam = 0.95,
                     ):
+        """initialize policy-dependendant pi_info shapes, gamma, lam etc."""
         self.pi_info_shapes = pi_info_shapes
         self.pi_info_bufs = {k: np.zeros(shape=[self.batch_size]+[self.max_path_length] + list(v), dtype=np.float32) 
                             for k,v in pi_info_shapes.items()}
@@ -75,14 +83,11 @@ class ModelBuffer(CPOBuffer):
         self.cutoff_horizons_mean = 0
         # ptr is a scalar to the current position in all paths. You are expected to store at the same timestep 
         #   in all parallel paths
-        # path_start_idx is the path starting index, which will actually always be 0, since paths are parallel
-        #   and always start at 0, may be removed 
-        # max_size is actually also the same for all parallel paths, but a batch sized vector is more convenient
-        #   for masked assertion
+        # path_start_idx is the path starting index, which will always be 0
+        # max_size is the maximum path length for all parallel paths
         # populated_mask shows us which entries in the buffer are valid, meaning they had a value stored in them
         #   and aren't terminated.
-        # terminated_paths_mask essentially notes the same thing as populated_mask but is one_dimensional for 
-        #   convenience
+        # terminated_paths_mask is a one_dimensional vector, indicating which trajectories have been terminated
 
         self.ptr, self.path_start_idx, self.max_size, self.populated_mask, self.populated_indices, self.terminated_paths_mask = \
                                                             0, \
@@ -140,9 +145,9 @@ class ModelBuffer(CPOBuffer):
             term_mask: a bool mask that indicates which paths should be terminated. 
                 has to be of same length as currently alive paths.
             last_val: value of the last state in the paths that are to be finished.
-                has to be of same length as the number of paths to be terminated (term_mask.sum())
+                has to be of same length as the number of paths to be terminated (term_mask.sum(),)
             last_cval: cost value of the last state in the paths that are to be finished.
-                has to be of same length as the number of paths to be terminated (term_mask.sum())
+                has to be of same length as the number of paths to be terminated (term_mask.sum(),)
         """
         if not term_mask.any(): return                    ### skip if not terminating anything
         assert self.alive_paths.sum() == len(term_mask)   ### terminating a non-alive path!
@@ -178,12 +183,13 @@ class ModelBuffer(CPOBuffer):
          
     def get(self):
         """
-        Returns a list of predetermined values in the buffer.
+        Returns a list of predetermined buffers.
         
         Returns:
-            list: [self.obs_buf, self.act_buf, self.adv_buf,
-                self.cadv_buf, self.ret_buf, self.cret_buf,
-                self.logp_buf] + values_as_sorted_list(self.pi_info_bufs)
+            list: [obs_buf, act_buf, adv_buf,
+                cadv_buf, ret_buf, cret_buf, 
+                logp_buf, val_buf, cval_buf,
+                cost_buf, (pi_info_bufs), ]
         """
         assert self.terminated_paths_mask.all()         ### all paths have to be finished
 

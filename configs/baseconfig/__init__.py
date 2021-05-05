@@ -1,7 +1,7 @@
 """Provides functions that are utilized by the command line interface.
 
 In particular, the examples are exposed to the command line interface
-(defined in `softlearning.scripts.console_scripts`) through the
+(defined in `scripts.console_scripts`) through the
 `get_trainable_class`, `get_variant_spec`, and `get_parser` functions.
 """
 

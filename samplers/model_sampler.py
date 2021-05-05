@@ -14,9 +14,18 @@ class ModelSampler(CpoSampler):
     def __init__(self,
                  max_path_length,
                  batch_size=1000,
-                 store_last_n_paths = 10,
                  rollout_mode = False,
                  logger = None):
+        """
+        Sampler for model experiences.
+        Stores parallel trajectoires in model buffer.
+
+        Args:
+            max_path_length(`int`): maximum path length, trajectory terminates
+            batch_size(`int`): Number of trajectories to sample from in parallel
+            rollout_mode(`str`): Termination strategy for rollouts (i.e. 'uncertainty', or 'schedule')
+            logger(`Logger`): logger, if not provided new one is created
+        """
         self._max_path_length = max_path_length
         self._path_length = np.zeros(batch_size)
 
@@ -26,9 +35,6 @@ class ModelSampler(CpoSampler):
             self.logger = logger
         else: 
             self.logger = EpochLogger()
-
-        self._store_last_n_paths = store_last_n_paths
-        self._last_n_paths = deque(maxlen=store_last_n_paths)
 
         self._current_path = defaultdict(list)
         self._last_path_return = 0
@@ -141,8 +147,6 @@ class ModelSampler(CpoSampler):
         self.policy = None
         self.pool = None
 
-    def clear_last_n_paths(self):
-        self._last_n_paths.clear()
 
     def compute_dynamics_dkl(self, obs_batch, depth=1):
         for _ in range(depth):
@@ -167,14 +171,6 @@ class ModelSampler(CpoSampler):
 
     def set_max_path_length(self, path_length):
         self._max_path_length = path_length
-
-    def get_last_n_paths(self, n=None):
-        if n is None:
-            n = self._store_last_n_paths
-
-        last_n_paths = tuple(islice(self._last_n_paths, None, n))
-
-        return last_n_paths
 
     @property
     def dyn_dkl(self):
@@ -205,9 +201,13 @@ class ModelSampler(CpoSampler):
         return processed_observation
 
     def reset(self, observations):
-        self.batch_size = observations.shape[0]
+        """
+        resets current observation/start-observation to the provided obs.
 
-        self._starting_uncertainty = np.zeros(self.batch_size)
+        Args:
+            observations(`np.ndarray`): observations with shape (batch_size, obs_dim)
+        """
+        self.batch_size = observations.shape[0]
         self._current_observation = observations
 
         self.policy.reset() #does nohing for cpo policy atm
@@ -245,7 +245,7 @@ class ModelSampler(CpoSampler):
         alive_paths = self.pool.alive_paths
         current_obs = self._current_observation
 
-        # Get outputs from policy
+        #### Get outputs from policy
         get_action_outs = self.policy.get_action_outs(current_obs)
         
         a = get_action_outs['pi']
@@ -254,12 +254,8 @@ class ModelSampler(CpoSampler):
 
         v_t = get_action_outs['v']
         vc_t = get_action_outs['vc']
-        #####
-
-        ## ____________________________________________ ##
-        ##                      Step                    ##
-        ## ____________________________________________ ##
-
+        
+        #### Step
         next_obs, reward, terminal, info = self.env.step(current_obs, a)
 
         reward = np.squeeze(reward, axis=-1)
@@ -270,22 +266,19 @@ class ModelSampler(CpoSampler):
         dyn_ep_var = info.get('ensemble_ep_var', np.zeros(shape=reward.shape[1:]))
         ens_mean_var = info.get('ensemble_mean_var', 0)
 
-        if self._n_episodes == 1:
-            self._starting_uncertainty = np.mean(dyn_ep_var, axis=-1)
-            self._starting_uncertainty_dkl = dyn_dkl_path
         ## ____________________________________________ ##
         ##    Check Uncertainty f. each Trajectory      ##
         ## ____________________________________________ ##
 
-        ### check if too uncertain before storing info of the taken step 
-        ### (so we don't take a "bad step" by appending values of next state)
+        #### check if too uncertain before storing samples 
+        #### (so we don't take a "bad step" by appending values of next state)
         if self.rollout_mode=='uncertainty':
             next_dkl = self._dyn_dkl_path[self.pool.alive_paths]+dyn_dkl_path
             too_uncertain_paths = next_dkl>=self.dkl_lim
         else:
             too_uncertain_paths = np.zeros(shape=self.pool.alive_paths.sum(), dtype=np.bool)
         
-        ### early terminate paths if max_samples is given
+        #### early terminate paths if max_samples is given
         if max_samples:
             n = self._total_samples + alive_paths.sum() - too_uncertain_paths.sum()
             n = max(n-max_samples, 0)
@@ -293,19 +286,17 @@ class ModelSampler(CpoSampler):
             early_term[:n] = True
             too_uncertain_paths[~too_uncertain_paths] = early_term
 
-        ### finish too uncertain paths before storing info of the taken step into buffer
-        # remaining_paths refers to the paths we have finished and has the same shape 
-        # as our terminal mask (too_uncertain_mask)
-        # alive_paths refers to all original paths and therefore has shape batch_size
+        #### finish paths with bootstrapping
         remaining_paths = self._finish_paths(too_uncertain_paths, append_vals=True, append_cvals=True)
         alive_paths = self.pool.alive_paths
+        #### remaining_paths has the same shape as our terminal mask (too_uncertain_mask)
+        #### alive_paths refers to all original paths and therefore has length of batch_size
+            ## i.e. remaining_paths.shape[0] = alive_paths.sum()
         if not alive_paths.any():
             info['alive_ratio'] = 0
             return next_obs, reward, terminal, info
-
-        ## ____________________________________________ ##
-        ##    Store Info of the remaining paths         ##
-        ## ____________________________________________ ##
+        
+        #### Store Info of the remaining paths (after adjusting shapes)
         current_obs     = current_obs[remaining_paths]
         a               = a[remaining_paths]
         next_obs        = next_obs[remaining_paths]
@@ -317,7 +308,6 @@ class ModelSampler(CpoSampler):
         dyn_dkl_path    = dyn_dkl_path[remaining_paths]
         logp_t          = logp_t[remaining_paths]
         pi_info_t       = {k:v[remaining_paths] for k,v in pi_info_t.items()}
-
         dyn_ep_var      = dyn_ep_var[remaining_paths]
 
         #### update some sampler infos
@@ -342,7 +332,7 @@ class ModelSampler(CpoSampler):
         self._dyn_dkl_path[alive_paths] += dyn_dkl_path
         self._max_path_return = max(self._max_path_return, np.max(self._path_return))
 
-        #### only store one trajectory in buffer 
+        #### store transitions in buffer
         self.pool.store_multiple(current_obs,
                                         a,
                                         next_obs,
@@ -355,8 +345,8 @@ class ModelSampler(CpoSampler):
                                         pi_info_t,
                                         terminal)
 
-        #### terminate mature termination due to path length
-        ## update obs before finishing paths (_finish_paths() uses current obs)
+        #### terminate due to path length
+            ## update obs before finishing paths (_finish_paths() uses current obs)
         self._current_observation = next_obs
 
         path_end_mask = (self._path_length >= self._max_path_length-1)[alive_paths]            
@@ -364,23 +354,21 @@ class ModelSampler(CpoSampler):
         if not remaining_paths.any():
             info['alive_ratio'] = 0
             return next_obs, reward, terminal, info
+        prem_term_mask = terminal
 
-        ## update remaining paths and obs
+
+        #### adjust obs shapes
         self._current_observation = self._current_observation[remaining_paths]
 
-        prem_term_mask = terminal
-        
-        #### terminate real termination due to env end
+        #### terminate real termination due to env term, no bootstrapping
         remaining_paths = self._finish_paths(term_mask=prem_term_mask, append_vals=False, append_cvals=True)
         if not remaining_paths.any():
             info['alive_ratio'] = 0
             return next_obs, reward, terminal, info
 
-        ### update alive paths
+        #### update alive paths and obs shapes
         alive_paths = self.pool.alive_paths
-        
         self._current_observation = self._current_observation[remaining_paths]
-
         alive_ratio = sum(alive_paths)/self.batch_size
         info['alive_ratio'] = alive_ratio
 
@@ -391,18 +379,18 @@ class ModelSampler(CpoSampler):
         terminates paths that are indicated in term_mask. Append_vals should be set to 
         True/False to indicate, whether values of the current states of those paths should 
         be appended (Note: Premature termination due to environment term should not 
-        include appended values, while Mature termination upon path length excertion should 
+        include appended values, while Mature termination due to path length should 
         include appended values)
 
         Warning! throws error if trying to terminate an already terminated path. 
 
         Args:
-            term_mask: Mask with the shape of the currently alive paths that indicates which 
+            term_mask(`np.ndarray`): Mask with the shape of the currently alive paths that indicates which 
                 paths should be termianted
-            append_vals: True/False whether values of the current state should be appended
+            append_vals(`bool`): True/False whether values of the current state should be appended
         
         Returns: 
-            remaining_mask: A Mask that indicates the remaining alive paths. Has the same shape 
+            remaining_mask(`np.ndarray`): A Mask that indicates the remaining alive paths. Has the same shape 
                 as the arg term_mask
         """
         if not term_mask.any():
@@ -428,10 +416,16 @@ class ModelSampler(CpoSampler):
         return remaining_path_mask
         
     def finish_all_paths(self):
-
-        alive_paths=self.pool.alive_paths ##any paths that are still alive did not terminate by env
+        """
+        terminates all currently maintained paths. Values are automatically 
+        bootstrapped.
+        
+        Returns: 
+            diagnostics(`dict`): A dict containting the samplers current diagnostics measurements.
+        """
+        alive_paths=self.pool.alive_paths ## any paths that are still alive
+        
         # init final values and quantify according to termination type
-        # Note: we do not count env time out as true terminal state
         if not alive_paths.any(): return self.get_diagnostics()
 
         if alive_paths.any():

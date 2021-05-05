@@ -71,33 +71,44 @@ def build_PE(in_dim,
 
 	return model
 
-def format_samples_for_dyn(samples, noise=None):
+def format_samples_for_dyn(samples, append_r=True, append_c=False, noise=None):
 	"""
 	formats samples to fit training, specifically returns: 
 	inputs, outputs:
 
 	inputs = np.concatenate((observations, act, priors), axis=-1)
-	outputs = np.concatenate((delta_observations, rewards (,costs)), axis=-1)
+	outputs = np.concatenate(delta_observations, rewards ,costs), axis=-1)  
 
+	where rewards and costs are optional
 	"""
 	obs = samples['observations']
 	act = samples['actions']
 	next_obs = samples['next_observations']
-	rew = np.squeeze(samples['rewards'])[..., None]
 	terms = np.squeeze(samples['terminals'])[..., None]
 
 	delta_obs = next_obs - obs
 
 	#### ----END preprocess samples for model training in safety gym -----####
 	inputs = np.concatenate((obs, act), axis=-1)
-	outputs = np.concatenate((delta_obs, rew), axis=-1)
+	
+	outputs = delta_obs
+	
+	if append_r:
+		rew = np.squeeze(samples['rewards'])[..., None]
+		outputs = np.concatenate((outputs, rew), axis=-1)
+	
+	if append_c:
+		costs = np.squeeze(samples['costs'])[..., None]
+		outputs = np.concatenate((outputs, costs), axis=-1)
 
 	# add noise
 	if noise:
-		inputs = _add_noise(inputs, noise)		### noise helps 
+		inputs = _add_noise(inputs, noise)		### noise helps (sometimes)
 
 	return inputs, outputs
 
+
+### @anyboby, try to include this in the model rather than separately
 def format_samples_for_cost(samples, oversampling=False, one_hot = True, num_classes=2, noise=None):
 	"""
 	formats samples to fit training for cost, specifically returns: 

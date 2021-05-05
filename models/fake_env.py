@@ -22,7 +22,22 @@ class FakeEnv:
                     predicts_rew,
                     predicts_cost,
                     ):
-        
+        """
+        Creates a fake environment that emulates common RL env methodology:
+        Args:
+            true_environment(`env`): true environment, used for shapes
+            task(`str`): name of the task, used to locate static fallback functions for r, c, or term
+            model(`BaseModel`): dynamics model, should inherit from BaseModel and implement the corresponding 
+                methods, 
+                inputs dim should be (obs_dim + act_dim,)
+            predicts_delta(`bool`): Does the model predict state-changes or absolute next-states?
+            predicts_rew(`bool`): Does the model predict rewards? 
+                If yes: rewards should be included in outputs after dynamics, 
+                i.e.: dim(outputs) = (..., (next_obs, r))
+            predicts_cost(`bool`): Does the model predict costs? 
+                If yes: costs should be included in outputs after dynamics and rewards (if applicable),
+                i.e.: dim(outputs) = (..., (next_obs, r, c))
+        """
         self.env = true_environment
         self.obs_dim = np.prod(self.observation_space.shape)
         self.act_dim = np.prod(self.action_space.shape)
@@ -52,6 +67,7 @@ class FakeEnv:
         assert len(obs.shape) == len(act.shape)
         assert obs.shape[-1]==self.obs_dim and act.shape[-1]==self.act_dim
 
+        ### check dimensionality of obs
         obs_depth = len(obs.shape)
         if obs_depth == 1:
             obs = obs[None]
@@ -60,26 +76,31 @@ class FakeEnv:
         else:
             return_single = False
 
+
+        ### create model inputs
         inputs = np.concatenate((obs, act), axis=-1)
 
+        ### if 3D-inputs, we shuffle so different models predict at every step
         if obs_depth==3:
             inputs, shuffle_indxs = self.forward_shuffle(inputs)
 
+        ### predict
         if self._uses_ensemble:
             pred = self._model.predict_ensemble(inputs)       #### dyn_vars gives ep. vars for 
-                                                                                                    ## deterministic ensembles and al. var for probabilistic
         else:
             pred = self._model.predict(inputs)
         
+        ### split predictions if probabilistic
         if self._is_probabilistic:
             pred_mean, pred_var = pred
         else:
             pred_mean, pred_var = pred, np.zeros_like(pred)
 
+        ### shuffle back
         if obs_depth==3:
             pred_mean, pred_var = self.inverse_shuffle(pred_mean, shuffle_indxs), self.inverse_shuffle(pred_var, shuffle_indxs)
         
-        #### probabilistic transitions if var is predicted
+        #### probabilistic transitions if var is predicted and deterministic is passed
         pred_std = np.sqrt(pred_var)
         if not deterministic:
             next_obs = pred_mean[...,:self.obs_dim] + pred_std[...,:self.obs_dim]
@@ -104,7 +125,6 @@ class FakeEnv:
             next_obs = next_obs[model_inds, batch_inds]
         else:
             next_obs = next_obs
-        ##########################
         
         #### add to obs if delta predictions
         if self._predicts_delta:

@@ -7,16 +7,11 @@ params = {
         'type': 'CMBPO',
         'kwargs':{
             'n_env_interacts': int(10e6),
-            'epoch_length': 50000, #1000,    # samples per epoch, also determines train frequency 
+            'epoch_length': 50000, 
             'eval_every_n_steps': 5e3,
-            'n_initial_exploration_steps': int(0), #5000
-            #### it is crucial to choose a model that doesn't overfit when trained too often on seen data
-            ## for model architecture finding:  1. play around with the start samples to find an architecture, that doesn't really overfit
-                                            # 2. _epochs_since_update in the bnn can somewhat limit overfitting, but is only treating the symptom
-                                            # 3. try finding a balance between the size of new samples per number of
-                                            #  updates of the model network (with model_train_freq)
+            'n_initial_exploration_steps': int(0), 
             'use_model': False,
-            'batch_size_policy': 5000,              ### how many samples 
+            'batch_size_policy': 35000,
         }
     },
     'policy_params':{
@@ -31,9 +26,9 @@ params = {
             'vf_ensemble_size':     3,
             'vf_elites':            2,
             'vf_activation':        'swish',
-            'vf_loss':              'MSE',           # choose from #'NLL' (inc. var); 'MSE' ; 'Huber'
+            'vf_loss':              'MSE', 
             'vf_decay':             1e-6,
-            'vf_clipping':          False,           # clip losses for a trust-region like update
+            'vf_clipping':          False, 
             'vf_kl_cliprange':      0.0,
             'ent_reg':              0, # 5e-3
             'target_kl':            0.01,
@@ -44,7 +39,7 @@ params = {
     'buffer_params': {},
     'sampler_params': {
         'kwargs':{
-            'render_mode':'human',
+            'render_mode':None,
         }
     },
     'run_params': {},

@@ -38,7 +38,10 @@ cmbpo run_local configs.baseconfig --config=configs.cmbpo_hcs --gpus=1 --trial-g
 
 A list of all available flags is provided in [baseconfig/utils](configs/baseconfig/utils.py). As of writing,only local running is supported. For further options, refer to the ray documentation.
 
-The `cmbpo` command uses the [console scripts](scripts/console_scripts.py) as an entry point for running experiments. A simple workflow of running experiments with ray-tune is illustrated in [run.py](scripts/run.py).
+The `cmbpo` command uses the [console scripts](scripts/console_scripts.py) as an entry point for running experiments. A simple workflow of running experiments with ray-tune is illustrated in [run.py](scripts/run.py), which can be executed with
+```sh
+python scripts/run.py configs.cmbpo_hcs
+```
 
 ## Algorithms
 Constrained Model-Based Policy Optimization aims at combining Constrained Policy Optimization with model-based data augmentation and reconciling constraint satisfaction with the entailed model-errors. 

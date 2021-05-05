@@ -30,7 +30,7 @@ from utilities.logging import Progress, update_dict
 
 
 class CMBPO(RLAlgorithm):
-    """Constrained Model-Based Policy Optimization (MBPO)
+    """Constrained Model-Based Policy Optimization (CMBPO)
     """
 
     def __init__(
@@ -43,6 +43,7 @@ class CMBPO(RLAlgorithm):
             n_env_interacts = 1e7,
             eval_every_n_steps=5e3,
             use_model = True,
+            m_learn_cost = False,
             m_train_freq = 250,
             m_loss_type = 'MSPE',
             m_use_scaler_in = True,
@@ -64,11 +65,9 @@ class CMBPO(RLAlgorithm):
     ):
         """
         Args:
-            env (`SoftlearningEnv`): Environment used for training.
-            policy: A policy function approximator.
-            initial_exploration_policy: ('Policy'): A policy that we use
-                for initial exploration which is not trained by the algorithm.
-            buffer (`CPOBuffer`): Replay pool to add gathered samples to.
+            env : Environment used for training.
+            policy: Policy for action selection.
+            buffer: A buffer that stores on-/off-policy samples.
         """
 
         super(CMBPO, self).__init__(**kwargs)
@@ -87,7 +86,7 @@ class CMBPO(RLAlgorithm):
         self._log_dir = os.getcwd()
         self._training_environment = env
         self._policy = policy
-        self._initial_exploration_policy = policy   #overwriting initial _exploration policy, not implemented for cpo yet
+        self._initial_exploration_policy = policy
         self.sampling_alpha = sampling_alpha
 
         #### set up buffer
@@ -101,6 +100,7 @@ class CMBPO(RLAlgorithm):
 
         #### create model fake environment
         self._use_model = use_model
+        self._m_learns_cost = m_learn_cost
         self._m_networks = m_networks
         self._m_elites = m_elites
         self._m_train_freq = m_train_freq
@@ -120,7 +120,7 @@ class CMBPO(RLAlgorithm):
         if use_model:
             self._model = build_PE(
                 in_dim= self.obs_dim + self.act_dim,
-                out_dim= self.obs_dim + 1,
+                out_dim= self.obs_dim + 1 + int(m_learn_cost),
                 name='DynEns',
                 loss=m_loss_type,
                 hidden_dims=m_hidden_dims,
@@ -139,13 +139,14 @@ class CMBPO(RLAlgorithm):
                                     model=self._model,
                                     predicts_delta=True,
                                     predicts_rew=True,
-                                    predicts_cost=False)
+                                    predicts_cost=m_learn_cost)
 
             #### model buffer
             self.rollout_mode = rollout_mode
             self.model_buf = ModelBuffer(batch_size=self._rollout_batch_size, 
+                                            obs_dim=self.obs_dim,
+                                            act_dim=self.act_dim,
                                             max_path_length=maxroll, 
-                                            env = self.fake_env,
                                             )
 
             self.model_buf.initialize(pi_info_shapes,
@@ -158,7 +159,6 @@ class CMBPO(RLAlgorithm):
             #### model sampler
             self.model_sampler = ModelSampler(max_path_length=maxroll,
                                                 batch_size=self._rollout_batch_size,
-                                                store_last_n_paths=10,
                                                 logger=None,
                                                 rollout_mode = self.rollout_mode,
                                                 )
@@ -175,15 +175,7 @@ class CMBPO(RLAlgorithm):
         self.sampler.set_logger(self.logger)
 
     def _train(self):
-        
         """Return a generator that performs RL training.
-
-        Args:
-            env (`SoftlearningEnv`): Environment used for training.
-            policy (`Policy`): Policy used for training
-            initial_exploration_policy ('Policy'): Policy used for exploration
-                If None, then all exploration is done using policy
-            pool (`PoolBase`): Sample pool to add samples to
         """
 
         env_r = self._training_environment
@@ -222,7 +214,7 @@ class CMBPO(RLAlgorithm):
         #### not implemented, could train policy before hook
         self._training_before_hook()
 
-        #### iterate over epochs, gt.timed_for to create loop with gt timestamps
+        #### create loop with gt timestamps
         for self._epoch in gt.timed_for(range(self._epoch, self._n_epochs)):
             
             #### do something at beginning of epoch (in this case reset self._train_steps_this_epoch=0)
@@ -245,40 +237,46 @@ class CMBPO(RLAlgorithm):
                     self._set_rollout_length()
 
                 while keep_rolling:
+                    #### sample starting states according to boltzman-distribution with avg. policy-KL divergence as temp.
                     ep_b = self._buffer.epoch_batch(batch_size=self._rollout_batch_size, epochs=self._buffer.epochs_list, fields=['observations','pi_infos'])
                     kls = np.clip(self._policy.compute_DKL(ep_b['observations'], ep_b['mu'], ep_b['log_std']), a_min=0, a_max=None)
                     btz_dist = self._buffer.boltz_dist(kls, alpha=self.sampling_alpha)
                     btz_b = self._buffer.distributed_batch_from_archive(self._rollout_batch_size, btz_dist, fields=['observations','pi_infos'])
                     start_states, mus, logstds = btz_b['observations'], btz_b['mu'], btz_b['log_std']
-                    btz_kl = np.clip(self._policy.compute_DKL(start_states, mus, logstds), a_min=0, a_max=None)
+                    
+                    ## good measure for debugging
+                    # btz_kl = np.clip(self._policy.compute_DKL(start_states, mus, logstds), a_min=0, a_max=None)
 
+                    #### provide sampler with starting states
                     self.model_sampler.reset(start_states)
 
+                    #### model rollouts
                     for i in count():
                         # print(f'Model Sampling step Nr. {i+1}')
-
                         _,_,_,info = self.model_sampler.sample(max_samples=int(self.approx_model_batch-samples_added))
 
                         if self.model_sampler._total_samples + samples_added >= .99*self.approx_model_batch:
                             keep_rolling = False
                             break
                         
+                        ## if all paths too uncertaint or terminal, restart loop
                         if info['alive_ratio']<= 0.1: break
 
-                    ### diagnostics for rollout ###
+                    #### diagnostics for rollout 
                     rollout_diagnostics = self.model_sampler.finish_all_paths()
 
-                    ### get model_samples, get() invokes the inverse variance rollouts ###
+                    #### get model_samples, get() resets model buffer pointers
                     model_samples_new, buffer_diagnostics_new = self.model_buf.get()
                     model_samples = [np.concatenate((o,n), axis=0) for o,n in zip(model_samples, model_samples_new)] if model_samples else model_samples_new
 
-                    ### diagnostics
+                    #### diagnostics
                     new_n_samples = len(model_samples_new[0])+EPS
                     diag_weight_old = samples_added/(new_n_samples+samples_added)
                     diag_weight_new = new_n_samples/(new_n_samples+samples_added)
                     metrics = update_dict(metrics, rollout_diagnostics, weight_a= diag_weight_old,weight_b=diag_weight_new)
                     metrics = update_dict(metrics, buffer_diagnostics_new,  weight_a= diag_weight_old,weight_b=diag_weight_new)
-                    ### run diagnostics on model data
+                    
+                    #### run diagnostics on model data
                     if buffer_diagnostics_new['poolm_batch_size']>0:
                         model_data_diag = self._policy.run_diagnostics(model_samples_new)
                         model_data_diag = {k+'_m':v for k,v in model_data_diag.items()}
@@ -287,7 +285,7 @@ class CMBPO(RLAlgorithm):
                     samples_added += new_n_samples
                     metrics.update({'samples_added':samples_added})
                 
-                ## for debugging
+                #### for debugging
                 metrics.update({'cached_var':np.mean(self._model.scaler_out.cached_var)})
                 metrics.update({'cached_mu':np.mean(self._model.scaler_out.cached_mu)})
 
@@ -295,17 +293,20 @@ class CMBPO(RLAlgorithm):
                 gt.stamp('epoch_rollout_model')
 
             #=====================================================================#
-            #  Sample                                                             #
+            #  Real Sampling                                                      #
             #=====================================================================#
+            
+            #### check how avg. dynamics KL-divergence compares to initial calibration
             if self._use_model:
                 n_real_samples = self.model_sampler.dyn_dkl/self.initial_model_dkl * self.init_real_samples
                 n_real_samples = max(n_real_samples, self.min_real_samples)
             else:
-                n_real_samples = self.batch_size_policy
+                n_real_samples = self.batch_size_policy     #### model-free
 
             metrics.update({'n_real_samples':n_real_samples})
             start_samples = self.sampler._total_samples                     
-            ### sample ###
+            
+            #### sample ####
             for i in count():
                 #### _timestep is within an epoch
                 samples_now = self.sampler._total_samples
@@ -340,7 +341,7 @@ class CMBPO(RLAlgorithm):
             #=====================================================================#
             real_samples, buf_diag = self._buffer.get()
 
-            ### run diagnostics on real data
+            #### run diagnostics on real data
             policy_diag = self._policy.run_diagnostics(real_samples)
             policy_diag = {k+'_r':v for k,v in policy_diag.items()}
             metrics.update(policy_diag)
@@ -356,10 +357,11 @@ class CMBPO(RLAlgorithm):
             self._policy.update_policy(train_samples)
             self._policy.update_critic(train_samples, train_vc=(train_samples[-3]>0).any())    ### @anyboby: only train vc if there are any costs?
             
+            #### update initial approximation for next model batch-size
             if self._use_model:
                 self.approx_model_batch = self.batch_size_policy-n_real_samples 
-
             self.policy_epoch += 1
+
             #### log policy diagnostics
             self._policy.log()
 
@@ -393,14 +395,14 @@ class CMBPO(RLAlgorithm):
                 ),
             )))
 
-            #### updateing and averaging
+            #### updating and averaging
             old_ts_diag = running_diag.get('timestep', 0)
             new_ts_diag = self._total_timestep-self.diag_counter-old_ts_diag
             w_olddiag = old_ts_diag/(new_ts_diag+old_ts_diag)
             w_newdiag = new_ts_diag/(new_ts_diag+old_ts_diag)
             running_diag = update_dict(running_diag, new_diagnostics, weight_a=w_olddiag, weight_b=w_newdiag)
             running_diag.update({'timestep':new_ts_diag + old_ts_diag})
-            ####
+            #####
             
             if new_ts_diag + old_ts_diag > self.eval_every_n_steps:
                 running_diag.update({
@@ -428,6 +430,10 @@ class CMBPO(RLAlgorithm):
         return self._train(*args, **kwargs)
 
     def _initial_exploration_hook(self, env, initial_exploration_policy, pool):
+        """
+        performed before policy learning. Samples can be used for model-learning, uncertainty calibration etc.
+        """
+
         if self._n_initial_exploration_steps < 1: return
 
         if not initial_exploration_policy:
@@ -443,7 +449,7 @@ class CMBPO(RLAlgorithm):
                 pool.get()  # moves policy samples to archive
                 break
         
-        ### train model
+        #### train model
         if self._use_model:
             self.train_model(min_epochs=150, max_epochs=500)
 
@@ -461,7 +467,7 @@ class CMBPO(RLAlgorithm):
                                                 'epochs',
                                                 ])
 
-        dyn_ins, dyn_outs = format_samples_for_dyn(model_samples)
+        dyn_ins, dyn_outs = format_samples_for_dyn(model_samples, append_r=True, append_c=self._m_learns_cost)
 
         diag_dyn = self._model.train(
             dyn_ins,
@@ -473,19 +479,9 @@ class CMBPO(RLAlgorithm):
             max_t=self._max_model_t
             )
 
-        c_ins, c_outs = format_samples_for_cost(model_samples,
-            one_hot=False)
-
-        # if self.fake_env.learn_cost:
-        #     diag_c = self.fake_env.train_cost_model(
-        #         model_samples, 
-        #         batch_size= batch_size, #batch_size, #512, 
-        #         min_epoch_before_break= min_epochs,#min_epochs,
-        #         max_epochs=max_epochs, # max_epochs, 
-        #         holdout_ratio=0.2, 
-        #         max_t=self._max_model_t
-        #         )
-        #     diag_dyn.update(diag_c)
+        ### @anyboy model should have option for different losses per logit
+        # c_ins, c_outs = format_samples_for_cost(model_samples,
+        #     one_hot=False)
         return diag_dyn
 
 
@@ -495,6 +491,9 @@ class CMBPO(RLAlgorithm):
         return total_timestep
 
     def _set_rollout_length(self):
+        """ Used when rollout horizons are set according to schedule. 
+        Assigns current rollout length according to schedule.
+        """
         min_epoch, max_epoch, min_length, max_length = self._rollout_schedule
         if self._epoch <= min_epoch:
             y = min_length
@@ -511,6 +510,9 @@ class CMBPO(RLAlgorithm):
 
    
     def _do_sampling(self, timestep):
+        """
+        sample from real-world sampler.
+        """
         return self.sampler.sample(timestep = timestep)
     
     def get_diagnostics(self,
@@ -519,10 +521,6 @@ class CMBPO(RLAlgorithm):
                         training_paths = None,
                         evaluation_paths = None):
         """Return diagnostic information as ordered dictionary.
-
-        Records state value function, and TD-loss (mean squared Bellman error)
-        for the sample batch.
-
         """
 
         # @anyboby 

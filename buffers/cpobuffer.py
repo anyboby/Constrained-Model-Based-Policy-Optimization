@@ -9,10 +9,6 @@ from utilities.utils import (combined_shape,
                                 discount_cumsum,
                                 )
 
-from utilities.utils import (discount_cumsum_weighted,  ## imports for for iv advantages
-                                triu_indices_t_h,
-                                )
-
 import warnings
 import random
 
@@ -20,7 +16,6 @@ class CPOBuffer:
 
     def __init__(self, size, archive_size, 
                  observation_space, action_space, 
-                 rollout_mode = 'schedule',
                  *args,
                  **kwargs,
                  ):
@@ -28,7 +23,15 @@ class CPOBuffer:
         self.act_shape = action_space.shape
         self.archive_size = archive_size
         self.max_size = size
-
+        """
+        On-policy buffer for trust-region methods. Calling get() resets 
+        pointers and moves on-policy data to an off-policy archive. 
+        Args:
+            size (`int`): number of samples the on-policy buffer can hold.
+            archive_size(`int`): Number of samples the off-policy archive can hold.
+            observation_space(`space`): Observation space.
+            action_space (`space`): Action space.
+        """
         # _____________________________ #
         # Create buffers and archives   #
         # _____________________________ #
@@ -52,7 +55,7 @@ class CPOBuffer:
             'costs':        self.cost_buf,
             'creturns':     self.cret_buf,
             'cvalues':      self.cval_buf,
-            'log_policies': self.logp_buf,
+            'log_probs': self.logp_buf,
             'terminals':    self.term_buf,
             'epochs':        self.epoch_buf,
         }
@@ -69,16 +72,17 @@ class CPOBuffer:
             'costs':        self.cost_archive,
             'creturns':     self.cret_archive,
             'cvalues':      self.cval_archive,
-            'log_policies': self.logp_archive,
+            'log_probs': self.logp_archive,
             'terminals':    self.term_archive,
             'epochs':        self.epoch_archive,
         }
 
-    ''' initialize policy dependendant pi_info shapes, gamma, lam etc.'''
     def initialize(self, pi_info_shapes,
                     gamma=0.99, lam = 0.95,
                     cost_gamma = 0.99, cost_lam = 0.95,
                     ):
+        """initialize policy-dependendant pi_info shapes, gamma, lam etc."""
+
         self.pi_info_bufs = {k: np.zeros([self.max_size] + list(v), dtype=np.float32) 
                             for k,v in pi_info_shapes.items()}
         self.pi_info_archive = {k: np.zeros([self.archive_size] + list(v), dtype=np.float32) 
@@ -244,20 +248,22 @@ class CPOBuffer:
         self.max_pointer = max(self.archive_ptr, self.max_pointer)
     def get(self):
         """
-        Returns a list of predetermined values in the buffer.
+        Returns a list of predetermined on-policy buffers.
         
         Returns:
-            list: [self.obs_buf, self.act_buf, self.adv_buf,
-                self.cadv_buf, self.ret_buf, self.cret_buf,
-                self.logp_buf] + values_as_sorted_list(self.pi_info_bufs)
+            list: [obs_buf, act_buf, adv_buf,
+                cadv_buf, ret_buf, cret_buf, 
+                logp_buf, val_buf, cval_buf,
+                cost_buf, (pi_info_bufs), ]
         """
-        #assert self.ptr == self.max_size    # uffer has to be full before you can get
+        #assert self.ptr == self.max_size
         
         # Advantage normalizing trick for policy gradient
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf[:self.ptr])
         self.adv_buf[:self.ptr] = (self.adv_buf[:self.ptr] - adv_mean) / (adv_std + EPS)
 
-        # Center, but do NOT rescale advantages for cost gradient
+        # Center, but do NOT rescale advantages for cost gradient, that would scrable 
+            # lagrange multipliers
         cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf[:self.ptr])
         self.cadv_buf[:self.ptr] -= cadv_mean
         self.dump_to_archive() 
@@ -303,7 +309,7 @@ class CPOBuffer:
             'costs'
             'creturns'
             'cvalues'
-            'log_policies'
+            'log_probs'
             'pi_infos'
             'terminals'
             'epochs'
@@ -356,7 +362,7 @@ class CPOBuffer:
             'costs'
             'creturns'
             'cvalues'
-            'log_policies'
+            'log_probs'
             'terminals'
 
         Args:
@@ -424,7 +430,7 @@ class CPOBuffer:
             'costs'
             'creturns'
             'cvalues'
-            'log_policies'
+            'log_probs'
             'terminals'
 
         Args:
@@ -475,13 +481,13 @@ class CPOBuffer:
             'costs'
             'creturns'
             'cvalues'
-            'log_policies'
+            'log_probs'
             'pi_infos'
             'terminals'
 
         Args:
             fields: a list containing the key words for the desired 
-            data types. e.g.: ['observations', 'actions', 'values']
+            data. e.g.: ['observations', 'actions', 'values']
         Returns:
             samples: A dict containining all archive values for default / specified fields 
             as np arrays collected under the latest (available) policy

@@ -133,17 +133,8 @@ class ExperimentRunner(tune.Trainable):
 
 def main(argv=None):
     """Run ExperimentRunner locally on ray.
-
-    To run this example on cloud (e.g. gce/ec2), use the setup scripts:
-    'softlearning launch_example_{gce,ec2} examples.development <options>'.
-
-    Run 'softlearning launch_example_{gce,ec2} --help' for further
-    instructions.
     """
-    # __package__ should be `development.main`
     run_example_local(__package__, argv)
-    #run_example_debug(__package__, argv)
-
 
 if __name__ == '__main__':
     main(argv=sys.argv[1:])

@@ -24,7 +24,7 @@ class SimpleExperiment(tune.Trainable):
     def _setup(self, params):
         self._params = params
         
-        ### set up tf session
+        #### set up tf session
         set_seed(params['run_params']['seed'])
         gpu_options = tf.GPUOptions(allow_growth=True)
         session = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
@@ -43,7 +43,7 @@ class SimpleExperiment(tune.Trainable):
         called by tune to build algorithm 
         """
 
-        ### set up building blocks for algorithm
+        #### set up building blocks for algorithm
         params = copy.deepcopy(self._params)
         env_params = params['environment_params']
         env = self.env = (
@@ -81,18 +81,28 @@ class SimpleExperiment(tune.Trainable):
         diagnostics = next(self.train_generator)
         return diagnostics
 
-def main():
+def main(argv=None):
+    """
+    run simple ray tune experiment.
 
+    Please provide config file location, e.g.
+
+    <python run.py configs.cmbpo_hcs>
+    """
+    assert argv[0] is not None, "Please provide config file location, e.g."
+
+    #### create
     base_module = 'configs.baseconfig'
     base_module = importlib.import_module(base_module)
 
-    ### tune configs
+    #### tune configs
     trial_name_template = 'seed:{trial.config[run_params][seed]}'
     trial_name_creator = create_trial_name_creator(trial_name_template) ## generator for trial name (determines logdir)
     gpus=1      ## gpus to be used
     trial_gpus=1    ## gpus to be used in trial
     mode='local'    ## local or remote, currently only local supported
-    config='configs.cmbpo_hcs'  ## config file location
+
+    config=str(argv[0])  ## config file location
 
     exp_config = DotMap(dict(
         gpus=gpus,
@@ -130,4 +140,4 @@ def main():
     )
 
 if __name__ == '__main__':
-    main()
+    main(argv=sys.argv[1:])

@@ -23,7 +23,6 @@ class RLAlgorithm(tf.contrib.checkpoint.Checkpointable):
             self,
             sampler,
             n_epochs=int(10e7),
-            max_train_repeat_per_timestep=5,
             n_initial_exploration_steps=0,
             initial_exploration_policy=None,
             epoch_length=1000,
@@ -36,10 +35,10 @@ class RLAlgorithm(tf.contrib.checkpoint.Checkpointable):
         """
         Args:
             n_epochs (`int`): Number of epochs to run the training for.
-            n_train_repeat (`int`): Number of times to repeat the training
-                for single time step.
             n_initial_exploration_steps: Number of steps in the beginning to
                 take using actions drawn from a separate exploration policy.
+            initial_exploration_policy: policy to follow during initial 
+                exploration hook
             epoch_length (`int`): Epoch length.
             eval_n_episodes (`int`): Number of rollouts to evaluate.
             eval_deterministic (`int`): Whether or not to run the policy in

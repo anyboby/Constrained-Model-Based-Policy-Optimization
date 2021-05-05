@@ -61,15 +61,7 @@ class FC:
             tensor = getattr(self, attr)
             op = tensor[idx].assign(var)
             sess.run(op)
-            # print('assigned {}: {}'.format(attr, idx))
-
-    # def set_model_vars(self, variables):
-    #     ops = [getattr(self, attr).assign(var) for attr, var in variables.items()]
-    #     return ops
-    #     # for attr, var in variables.items():
-    #         # tensor = getattr(self, attr)
-    #         # op = tensor.assign(var)
-
+            print('assigned {}: {}'.format(attr, idx))
 
     def reset(self, sess):
         sess.run(self.weights.initializer)
