@@ -70,6 +70,37 @@ ENVS_FUNCTIONS = {
 }
 ```
 
+### Adding rllab environments
+To run experiments on the rllab environments used in CPO, a new environment should be created (rllab requires a number of outdated modules). After checking out the rllab branch, do the following from the root directory of CMBPO:
+```sh
+conda env create -f cmbpo_rllab.yml
+conda activate cmbpo_rllab
+```
+Now add rllab and CPO as git submodules:
+```sh
+git submodule add -f https://github.com/rll/rllab.git envs/rllab
+cd envs/rllab/
+git submodule add -f https://github.com/jachiam/cpo sandbox/cpo
+```
+Rllab requires a MuJoCo 1.31. This can be installed by:
+```sh
+wget https://www.roboti.us/download/mjpro131_linux.zip
+./scripts/setup_mujoco.sh
+        <Enter mjpro131_linx.zip for mujoco path>   # mjpro131_linux.zip
+        <Enter path to mujoco license file>         # ~/.mujoco/mjkey.txt
+```
+Unfortunately, an additional modification in the rllab repository is necessary. Go to the [ProxyEnv file](envs/rllab/rllab/envs/proxy_env.py) and comment out the Serializable initialization line in __init__, such that we get:
+```sh
+cd rllab/envs/
+vim proxy_env.py
+```
+```py
+    def __init__(self, wrapped_env):
+        #Serializable.quick_init(self, locals())
+        self._wrapped_env = wrapped_env
+```
+Finished! The rllab branch contains a [gym wrapper](envs/wrappers/rllab_wrappers.py) for the rllab environments which takes care of the rest. The configuration for running CMBPO on AntCircle can be found in [config_antcircle](configs/cmbpo_antcircle.py).
+
 ## Model-Learning with custom environments
 When using a model with custom environments, the model requires a few interfaces to function with the provided code. The [base model](models/base_model.py) should be inherited by a learned (or handcrafted) model and specify whether rewards, costs, and termination functions are predicted alongside the dynamics. 
 

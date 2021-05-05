@@ -1,4 +1,4 @@
-name: cmbpo
+name: cmbpo_rllab
 channels:
   - anaconda
   - defaults
@@ -6,11 +6,15 @@ dependencies:
   - click=7.0
   - matplotlib=3.3.4
   - mpi4py=3.0.3
+  - path=15.1.0
   - pip=21.0.1
+  - pyopengl=3.1.1a1
   - python=3.6.12
   - requests=2.20.1
   - tensorflow-gpu=1.14.0
+  - theano=1.0.4
   - pip:
+      - cached-property==1.5.2
       - conda-env-export==0.3.2
       - dotmap==1.3.8
       - gtimer==1.0.0b5
@@ -21,11 +25,14 @@ dependencies:
       - mkl-service==2.3.0
       - mujoco-py==2.0.2.13
       - olefile==0.46
+      - pygpu==0.7.6
+      - PyOpenGL==3.1.1a1
       - pyOpenSSL==19.1.0
       - PySocks==1.7.1
       - PyYAML==5.4.1
       - ray==0.6.4
       - sip==4.19.24
       - tensorflow==1.14.0
+      - Theano==1.0.4
       - tornado==6.0.4
-prefix: /home/mo/anaconda3/envs/cmbpo_test2
+prefix: /home/mo/anaconda3/envs/cmbpo_rllab

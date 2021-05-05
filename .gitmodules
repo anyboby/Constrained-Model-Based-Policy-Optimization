@@ -1,0 +1,6 @@
+[submodule "environments/rllab"]
+	path = environments/rllab
+	url = https://github.com/rll/rllab.git
+[submodule "envs/rllab"]
+	path = envs/rllab
+	url = https://github.com/rll/rllab.git

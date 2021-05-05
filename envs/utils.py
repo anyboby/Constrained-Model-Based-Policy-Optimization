@@ -1,6 +1,6 @@
 import gym
 import envs.mujoco_safety_gym
-from wrappers import NormalizeActionWrapper
+from envs.wrappers import NormalizeActionWrapper
 
 def get_gym_env():
     import gym
@@ -8,13 +8,19 @@ def get_gym_env():
     
     return gym.make
 
+def get_rllab_env():
+    from envs.wrappers.rllab_wrapper import RllabEnv
+    
+    return RllabEnv
+
 def get_safety_gym():  
     import safety_gym
 
     return gym.make
 
 ENVS_FUNCTIONS = {
-    'gym':get_gym_env()
+    'gym':get_gym_env(),
+    'rllab':get_rllab_env(),
 }
 
 def get_environment(universe, task, environment_kwargs):

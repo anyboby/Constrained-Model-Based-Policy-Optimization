@@ -140,7 +140,8 @@ class CpoSampler():
         ### step in env
         next_observation, reward, terminal, info = self.env.step(a)
         if self._render_mode:
-            self.env.render(self._render_mode)
+            self.env.render(mode=self._render_mode)
+
         next_observation = np.squeeze(next_observation)
         reward = np.squeeze(reward)
         terminal = np.squeeze(terminal)        
@@ -168,7 +169,6 @@ class CpoSampler():
 
         for key, value in processed_sample.items():
             self._current_path[key].append(value)
-
 
         #### update current obs before finishing
         self._current_observation = next_observation
