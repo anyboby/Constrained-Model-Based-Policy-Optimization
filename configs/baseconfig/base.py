@@ -151,6 +151,11 @@ RUN_PARAMS = {
     'checkpoint_buffer': False,
 }
 
+ENV_PARAMS = {
+    'normalize_actions':False,
+    'kwargs':{}
+}
+
 def get_variant_spec(args, params):
     assert hasattr(params, 'universe') and \
         hasattr(params, 'task') and \
@@ -158,15 +163,16 @@ def get_variant_spec(args, params):
         hasattr(params, 'policy') 
 
     universe, task = params.universe, params.task
+    ENV_PARAMS.update({
+                'universe': universe,
+                'task': task,
+            })
+
     algorithm, policy = params.algorithm_params.type, params.policy_params.type
     base_spec = {
         'log_dir': f'~/ray_{algorithm.lower()}',
         'exp_name': 'defaults',
-        'environment_params': {
-            'universe': universe,
-            'task': task,
-            'kwargs':{},
-        },
+        'environment_params': ENV_PARAMS,
         'policy_params': POLICY_PARAMS_BASE[policy],
         'algorithm_params': ALGORITHM_PARAMS[algorithm],
         'buffer_params': BUFFER_PARAMS_PER_ALGO[algorithm],

@@ -2,7 +2,7 @@
 
 params = {
     'universe': 'gym',
-    'task': 'HalfCheetahSafe-v2',
+    'task': 'HumanoidSafe-v2',
     'environment_params': {
         'normalize_actions': True,
     },

@@ -3,6 +3,9 @@
 params = {
     'universe': 'gym',
     'task': 'AntSafe-v2',
+    'environment_params': {
+        'normalize_actions': True,
+    },
     'algorithm_params': {
         'type': 'CMBPO',
         'kwargs':{
